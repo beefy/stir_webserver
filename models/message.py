@@ -6,6 +6,7 @@ from typing import Optional
 class Message(Document):
     """Represents a message between two users."""
 
+    message_id: str  # UUID identifying the message
     send_user_id: str
     receive_user_id: str
     message: str

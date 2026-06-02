@@ -75,6 +75,21 @@ class BlockListRequest(BaseModel):
     )
 
 
+class ReactToMessageRequest(BaseModel):
+    """Request body for POST /react_to_message."""
+
+    message_id: str = Field(
+        ...,
+        description="UUID identifying the message to react to",
+        json_schema_extra={"example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
+    )
+    reaction_content: str | None = Field(
+        ...,
+        description="Reaction content: 'up', 'down', or null to clear",
+        json_schema_extra={"example": "up"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -99,6 +114,9 @@ class MessageOut(BaseModel):
     """A single message returned in message history."""
 
     message_id: str = Field(description="MongoDB document ID")
+    human_message_id: str = Field(
+        description="UUID identifying the message"
+    )
     send_user_id: str = Field(
         description="Sender ID (anonymized if not the requesting user)"
     )

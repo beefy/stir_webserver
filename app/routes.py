@@ -1,6 +1,7 @@
 """API route handlers for stir_webserver."""
 
 import random
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
@@ -12,6 +13,7 @@ from app.types import (
     LoginRequest,
     MessageHistoryResponse,
     MessageOut,
+    ReactToMessageRequest,
     SendMessageRequest,
     SuccessResponse,
     UnblockUserRequest,
@@ -81,6 +83,7 @@ async def send_message(body: SendMessageRequest):
     recipient = random.choice(eligible)
 
     message = Message(
+        message_id=str(uuid.uuid4()),
         send_user_id=body.send_user_id,
         receive_user_id=recipient.user_id,
         message=body.message_content,
@@ -92,7 +95,7 @@ async def send_message(body: SendMessageRequest):
     await message.insert()
 
     return SuccessResponse(
-        detail=f"Message sent to user '{recipient.user_id}'."
+        detail="Message sent."
     )
 
 
@@ -116,12 +119,21 @@ async def message_history(
     """Return all messages where the user is sender or receiver."""
     messages = (
         await Message.find(
-            (Message.send_user_id == user_id)
-            | (Message.receive_user_id == user_id)
+            {"$or": [
+                {"send_user_id": user_id},
+                {"receive_user_id": user_id},
+            ]}
         )
         .sort(Message.sent_timestamp)
         .to_list()
     )
+
+    # Mark messages as seen where the requesting user is the receiver
+    now = datetime.now(timezone.utc)
+    for msg in messages:
+        if msg.receive_user_id == user_id and msg.seen_timestamp is None:
+            msg.seen_timestamp = now
+            await msg.save()
 
     out: list[MessageOut] = []
     for msg in messages:
@@ -134,6 +146,7 @@ async def message_history(
         out.append(
             MessageOut(
                 message_id=str(msg.id),
+                human_message_id=msg.message_id,
                 send_user_id=(
                     user_id if msg.send_user_id == user_id else other_id
                 ),
@@ -227,3 +240,43 @@ async def block_list(body: BlockListRequest):
     ]
 
     return BlockListResponse(blocked_user_ids=anonymized_ids)
+
+
+@router.post(
+    "/react_to_message",
+    response_model=SuccessResponse,
+    summary="React to a message",
+    description=(
+        "Sets the reaction on a message. Accepted reaction values are "
+        "'up', 'down', or null (to clear the reaction)."
+    ),
+)
+async def react_to_message(body: ReactToMessageRequest):
+    """Set or clear a reaction on a message."""
+    VALID_REACTIONS = {"up", "down", None}
+
+    if body.reaction_content not in VALID_REACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid reaction '{body.reaction_content}'. "
+                f"Accepted values: 'up', 'down', or null."
+            ),
+        )
+
+    message = await Message.find_one(Message.message_id == body.message_id)
+    if message is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Message with message_id '{body.message_id}' not found.",
+        )
+
+    message.reaction_type = body.reaction_content
+    await message.save()
+
+    return SuccessResponse(
+        detail=(
+            f"Reaction set to '{body.reaction_content}' "
+            f"on message {body.message_id}."
+        )
+    )
