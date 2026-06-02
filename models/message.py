@@ -8,9 +8,9 @@ class Message(Document):
 
     send_user_id: str
     receive_user_id: str
-    seen_timestamp: Optional[datetime] = None  # When the message was seen
-    reaction_type: Optional[str] = None  # Reaction type (e.g., "like", "heart", etc.)
-    reported: bool = False  # Whether the message has been reported
+    seen_timestamp: Optional[datetime] = None
+    reaction_type: Optional[str] = None
+    reported: bool = False
 
     class Settings:
         name = "messages"
