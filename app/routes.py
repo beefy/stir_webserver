@@ -198,10 +198,10 @@ async def block_user(body: BlockUserRequest):
         )
         await entry.insert()
         return SuccessResponse(
-            detail=f"User '{blocked_user_id}' blocked."
+            detail=f"User blocked."
         )
     return SuccessResponse(
-        detail=f"User '{blocked_user_id}' is already blocked."
+        detail=f"User is already blocked."
     )
 
 
