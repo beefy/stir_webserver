@@ -1,20 +1,16 @@
 """
 Initial migration: Creates the messages, blocked, and users collections.
 
-This migration sets up the initial database schema by defining the
-Message, Blocked, and User document models with Beanie ODM.
+This migration sets up the initial database schema by creating the
+collections and any necessary indexes directly via the Motor driver.
 """
 
-from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
-from models.message import Message
-from models.blocked import Blocked
-from models.user import User
 
 
 async def upgrade(connection_string: str, database_name: str) -> None:
     """
-    Run the migration to initialize Beanie with the models.
+    Run the migration to create the collections.
 
     Args:
         connection_string: MongoDB connection string.
@@ -23,15 +19,30 @@ async def upgrade(connection_string: str, database_name: str) -> None:
     client = AsyncIOMotorClient(connection_string)
     database = client[database_name]
 
-    await init_beanie(
-        database=database,
-        document_models=[Message, Blocked, User],
-    )
+    existing = await database.list_collection_names()
 
-    print(
-        "Migration 001_initial complete: "
-        "messages, blocked, and users collections created."
-    )
+    # Create messages collection
+    if "messages" not in existing:
+        await database.create_collection("messages")
+        print("Created collection: messages")
+    else:
+        print("Collection already exists: messages")
+
+    # Create blocked collection
+    if "blocked" not in existing:
+        await database.create_collection("blocked")
+        print("Created collection: blocked")
+    else:
+        print("Collection already exists: blocked")
+
+    # Create users collection
+    if "users" not in existing:
+        await database.create_collection("users")
+        print("Created collection: users")
+    else:
+        print("Collection already exists: users")
+
+    print("Migration 001_initial complete.")
 
 
 async def downgrade(connection_string: str, database_name: str) -> None:
@@ -51,7 +62,4 @@ async def downgrade(connection_string: str, database_name: str) -> None:
             await database[collection_name].drop()
             print(f"Dropped collection: {collection_name}")
 
-    print(
-        "Migration 001_initial rolled back: "
-        "messages, blocked, and users collections dropped."
-    )
+    print("Migration 001_initial rolled back.")
