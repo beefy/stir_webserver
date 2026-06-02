@@ -63,18 +63,19 @@ async def send_message(body: SendMessageRequest):
         )
 
     # Find users who have blocked the sender
+    # (the sender should not be able to message them)
     blocked_entries = await Blocked.find(
-        Blocked.blocked_by_user_id == body.send_user_id
+        Blocked.blocked_user_id == body.send_user_id
     ).to_list()
-    blocked_user_ids = {b.blocked_user_id for b in blocked_entries}
+    blocked_by_user_ids = {b.blocked_by_user_id for b in blocked_entries}
 
     # Pick a random recipient
-    # (excluding the sender and anyone who blocked them)
+    # (excluding the sender and anyone who has blocked the sender)
     all_users = await User.find(
         User.user_id != body.send_user_id
     ).to_list()
 
-    eligible = [u for u in all_users if u.user_id not in blocked_user_ids]
+    eligible = [u for u in all_users if u.user_id not in blocked_by_user_ids]
 
     if not eligible:
         raise HTTPException(
@@ -198,10 +199,10 @@ async def block_user(body: BlockUserRequest):
         )
         await entry.insert()
         return SuccessResponse(
-            detail=f"User blocked."
+            detail="User blocked."
         )
     return SuccessResponse(
-        detail=f"User is already blocked."
+        detail="User is already blocked."
     )
 
 
