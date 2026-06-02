@@ -145,8 +145,7 @@ async def message_history(
 
         out.append(
             MessageOut(
-                message_id=str(msg.id),
-                human_message_id=msg.message_id,
+                message_id=msg.message_id,
                 send_user_id=(
                     user_id if msg.send_user_id == user_id else other_id
                 ),

@@ -113,10 +113,7 @@ class SuccessResponse(BaseModel):
 class MessageOut(BaseModel):
     """A single message returned in message history."""
 
-    message_id: str = Field(description="MongoDB document ID")
-    human_message_id: str = Field(
-        description="UUID identifying the message"
-    )
+    message_id: str = Field(description="UUID identifying the message")
     send_user_id: str = Field(
         description="Sender ID (anonymized if not the requesting user)"
     )
