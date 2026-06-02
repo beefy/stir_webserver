@@ -90,6 +90,16 @@ class ReactToMessageRequest(BaseModel):
     )
 
 
+class ReportMessageRequest(BaseModel):
+    """Request body for POST /report_message."""
+
+    message_id: str = Field(
+        ...,
+        description="UUID identifying the message to report",
+        json_schema_extra={"example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------

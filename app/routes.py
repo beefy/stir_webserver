@@ -14,6 +14,7 @@ from app.types import (
     MessageHistoryResponse,
     MessageOut,
     ReactToMessageRequest,
+    ReportMessageRequest,
     SendMessageRequest,
     SuccessResponse,
     UnblockUserRequest,
@@ -278,4 +279,27 @@ async def react_to_message(body: ReactToMessageRequest):
             f"Reaction set to '{body.reaction_content}' "
             f"on message {body.message_id}."
         )
+    )
+
+
+@router.post(
+    "/report_message",
+    response_model=SuccessResponse,
+    summary="Report a message",
+    description="Sets the reported flag to true for the specified message.",
+)
+async def report_message(body: ReportMessageRequest):
+    """Mark a message as reported."""
+    message = await Message.find_one(Message.message_id == body.message_id)
+    if message is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Message with message_id '{body.message_id}' not found.",
+        )
+
+    message.reported = True
+    await message.save()
+
+    return SuccessResponse(
+        detail=f"Message {body.message_id} reported."
     )
