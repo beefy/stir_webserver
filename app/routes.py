@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 
 from app.types import (
+    BlockedUserEntry,
     BlockListRequest,
     BlockListResponse,
     BlockUserRequest,
@@ -230,16 +231,47 @@ async def unblock_user(body: UnblockUserRequest):
     ),
 )
 async def block_list(body: BlockListRequest):
-    """Return all user IDs blocked by the given user, anonymized."""
+    """Return all blocked users with their messages to the blocker."""
     entries = await Blocked.find(
         Blocked.blocked_by_user_id == body.blocked_by_user_id
     ).to_list()
 
-    anonymized_ids = [
-        anonymize_user_id(e.blocked_user_id) for e in entries
-    ]
+    blocked_users: list[BlockedUserEntry] = []
+    for entry in entries:
+        anonymized_id = anonymize_user_id(entry.blocked_user_id)
 
-    return BlockListResponse(blocked_user_ids=anonymized_ids)
+        # Find messages sent by the blocked user to the blocker
+        messages = (
+            await Message.find(
+                Message.send_user_id == entry.blocked_user_id,
+                Message.receive_user_id == body.blocked_by_user_id,
+            )
+            .sort(Message.sent_timestamp)
+            .to_list()
+        )
+
+        message_outs = [
+            MessageOut(
+                message_id=msg.message_id,
+                send_user_id=anonymized_id,
+                receive_user_id=body.blocked_by_user_id,
+                message=msg.message,
+                sent_timestamp=msg.sent_timestamp,
+                seen_timestamp=msg.seen_timestamp,
+                reaction_type=msg.reaction_type,
+                reported=msg.reported,
+            )
+            for msg in messages
+        ]
+
+        blocked_users.append(
+            BlockedUserEntry(
+                blocked_user_id=anonymized_id,
+                messages=message_outs,
+            )
+        )
+
+    return BlockListResponse(blocked_users=blocked_users)
 
 
 @router.post(

@@ -105,14 +105,6 @@ class ReportMessageRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class BlockListResponse(BaseModel):
-    """Response for POST /block_list."""
-
-    blocked_user_ids: list[str] = Field(
-        description="List of anonymized blocked user IDs"
-    )
-
-
 class SuccessResponse(BaseModel):
     """Generic success response."""
 
@@ -147,3 +139,22 @@ class MessageHistoryResponse(BaseModel):
     """Response for GET /message_history."""
 
     messages: list[MessageOut]
+
+
+class BlockedUserEntry(BaseModel):
+    """A blocked user and the messages they sent to the blocker."""
+
+    blocked_user_id: str = Field(
+        description="Anonymized user ID of the blocked user"
+    )
+    messages: list[MessageOut] = Field(
+        description="Messages sent by the blocked user to the blocker"
+    )
+
+
+class BlockListResponse(BaseModel):
+    """Response for POST /block_list."""
+
+    blocked_users: list[BlockedUserEntry] = Field(
+        description="List of blocked users with their messages"
+    )
