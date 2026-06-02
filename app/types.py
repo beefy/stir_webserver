@@ -43,10 +43,15 @@ class BlockUserRequest(BaseModel):
         description="Firebase user ID of the user doing the blocking",
         json_schema_extra={"example": "firebase-uid-123"},
     )
-    blocked_user_id: str = Field(
+    message_id: str = Field(
         ...,
-        description="Firebase user ID of the user being blocked",
-        json_schema_extra={"example": "firebase-uid-456"},
+        description=(
+            "UUID of a message sent by the user to block. "
+            "The sender of this message will be blocked."
+        ),
+        json_schema_extra={
+            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        },
     )
 
 

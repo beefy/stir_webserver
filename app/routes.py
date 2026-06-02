@@ -175,23 +175,33 @@ async def message_history(
     ),
 )
 async def block_user(body: BlockUserRequest):
-    """Block a user. If already blocked, this is a no-op."""
+    """Block the sender of a message. If already blocked, this is a no-op."""
+    # Look up the message to find the sender
+    message = await Message.find_one(Message.message_id == body.message_id)
+    if message is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Message with message_id '{body.message_id}' not found.",
+        )
+
+    blocked_user_id = message.send_user_id
+
     existing = await Blocked.find_one(
         Blocked.blocked_by_user_id == body.blocked_by_user_id,
-        Blocked.blocked_user_id == body.blocked_user_id,
+        Blocked.blocked_user_id == blocked_user_id,
     )
     if existing is None:
         entry = Blocked(
-            blocked_user_id=body.blocked_user_id,
+            blocked_user_id=blocked_user_id,
             blocked_by_user_id=body.blocked_by_user_id,
             blocked_timestamp=datetime.now(timezone.utc),
         )
         await entry.insert()
         return SuccessResponse(
-            detail=f"User '{body.blocked_user_id}' blocked."
+            detail=f"User '{blocked_user_id}' blocked."
         )
     return SuccessResponse(
-        detail=f"User '{body.blocked_user_id}' is already blocked."
+        detail=f"User '{blocked_user_id}' is already blocked."
     )
 
 
