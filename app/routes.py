@@ -6,11 +6,15 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 
 from app.types import (
+    BlockListRequest,
+    BlockListResponse,
+    BlockUserRequest,
     LoginRequest,
     MessageHistoryResponse,
     MessageOut,
     SendMessageRequest,
     SuccessResponse,
+    UnblockUserRequest,
 )
 from app.utils import anonymize_user_id
 from models.blocked import Blocked
@@ -145,3 +149,81 @@ async def message_history(
         )
 
     return MessageHistoryResponse(messages=out)
+
+
+@router.post(
+    "/block_user",
+    response_model=SuccessResponse,
+    summary="Block a user",
+    description=(
+        "Adds a record to the blocked table. If the block record already "
+        "exists, this is a no-op."
+    ),
+)
+async def block_user(body: BlockUserRequest):
+    """Block a user. If already blocked, this is a no-op."""
+    existing = await Blocked.find_one(
+        Blocked.blocked_by_user_id == body.blocked_by_user_id,
+        Blocked.blocked_user_id == body.blocked_user_id,
+    )
+    if existing is None:
+        entry = Blocked(
+            blocked_user_id=body.blocked_user_id,
+            blocked_by_user_id=body.blocked_by_user_id,
+            blocked_timestamp=datetime.now(timezone.utc),
+        )
+        await entry.insert()
+        return SuccessResponse(
+            detail=f"User '{body.blocked_user_id}' blocked."
+        )
+    return SuccessResponse(
+        detail=f"User '{body.blocked_user_id}' is already blocked."
+    )
+
+
+@router.post(
+    "/unblock_user",
+    response_model=SuccessResponse,
+    summary="Unblock a user",
+    description=(
+        "Removes the block record from the blocked table if it exists. "
+        "If no such block exists, this is a no-op."
+    ),
+)
+async def unblock_user(body: UnblockUserRequest):
+    """Unblock a user. If not currently blocked, this is a no-op."""
+    existing = await Blocked.find_one(
+        Blocked.blocked_by_user_id == body.blocked_by_user_id,
+        Blocked.blocked_user_id == body.blocked_user_id,
+    )
+    if existing is not None:
+        await existing.delete()
+        return SuccessResponse(
+            detail=f"User '{body.blocked_user_id}' unblocked."
+        )
+    return SuccessResponse(
+        detail=f"User '{body.blocked_user_id}' was not blocked."
+    )
+
+
+@router.post(
+    "/block_list",
+    response_model=BlockListResponse,
+    summary="Get block list for a user",
+    description=(
+        "Returns a list of all user IDs that the specified user has "
+        "blocked. The returned user IDs are deterministically anonymized "
+        "using SHA-256."
+    ),
+)
+async def block_list(body: BlockListRequest):
+    """Return all user IDs blocked by the given user, anonymized."""
+    entries = await Blocked.find(
+        Blocked.blocked_by_user_id == body.blocked_by_user_id
+    ).to_list()
+
+    anonymized_ids = [
+        anonymize_user_id(e.blocked_user_id) for e in entries
+    ]
+
+    return BlockListResponse(blocked_user_ids=anonymized_ids)
