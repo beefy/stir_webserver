@@ -224,10 +224,10 @@ async def unblock_user(body: UnblockUserRequest):
     if existing is not None:
         await existing.delete()
         return SuccessResponse(
-            detail=f"User '{body.blocked_user_id}' unblocked."
+            detail=f"User unblocked."
         )
     return SuccessResponse(
-        detail=f"User '{body.blocked_user_id}' was not blocked."
+        detail=f"User was not blocked."
     )
 
 
