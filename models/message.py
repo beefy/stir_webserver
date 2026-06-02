@@ -8,6 +8,8 @@ class Message(Document):
 
     send_user_id: str
     receive_user_id: str
+    message: str
+    sent_timestamp: datetime
     seen_timestamp: Optional[datetime] = None
     reaction_type: Optional[str] = None
     reported: bool = False

@@ -17,7 +17,7 @@
 
 2. Create and activate a virtual environment:
    ```bash
-   python -m venv .venv
+   python3 -m venv .venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
 
@@ -42,10 +42,10 @@ Make sure `PYTHONPATH` includes the project root, then run:
 
 ```bash
 # Apply all pending migrations
-PYTHONPATH=. python scripts/migrate.py up
+PYTHONPATH=. python3 scripts/migrate.py up
 
 # Roll back all migrations
-PYTHONPATH=. python scripts/migrate.py down
+PYTHONPATH=. python3 scripts/migrate.py down
 ```
 
 #### Configuration
@@ -63,7 +63,7 @@ Example with custom connection string:
 MONGODB_CONNECTION_STRING="mongodb+srv://user:pass@cluster.mongodb.net" \
 MONGODB_DATABASE_NAME="stir_prod" \
 PYTHONPATH=. \
-python scripts/migrate.py up
+python3 scripts/migrate.py up
 ```
 
 #### Adding New Migrations
@@ -74,26 +74,11 @@ python scripts/migrate.py up
    `async def downgrade(connection_string, database_name)` functions.
 3. Migrations are discovered automatically — no registration needed.
 
-## Models
+### Running the Server
 
-### Message
+```bash
+PYTHONPATH=. uvicorn app.main:app --reload
+```
 
-| Field | Type | Description |
-|---|---|---|
-| `send_user_id` | `str` | Firebase user ID of the sender |
-| `receive_user_id` | `str` | Firebase user ID of the receiver |
-| `seen_timestamp` | `datetime` (optional) | When the message was seen |
-| `reaction_type` | `str` (optional) | Reaction type (e.g., "like", "heart") |
-| `reported` | `bool` | Whether the message has been reported |
-
-Collection name: `messages`
-
-### Blocked
-
-| Field | Type | Description |
-|---|---|---|
-| `blocked_user_id` | `str` | Firebase user ID of the user being blocked |
-| `blocked_by_user_id` | `str` | Firebase user ID of the user who performed the block |
-| `blocked_timestamp` | `datetime` | When the block occurred |
-
-Collection name: `blocked`
+The API will be available at `http://localhost:8000`. Interactive docs
+are at `http://localhost:8000/docs`.
