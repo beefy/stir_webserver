@@ -13,6 +13,7 @@ from app.types import (
     SuccessResponse,
 )
 from app.utils import anonymize_user_id
+from models.blocked import Blocked
 from models.message import Message
 from models.user import User
 
@@ -53,18 +54,27 @@ async def send_message(body: SendMessageRequest):
             detail="Message must be 255 characters or fewer.",
         )
 
-    # Pick a random recipient (excluding the sender)
+    # Find users who have blocked the sender
+    blocked_entries = await Blocked.find(
+        Blocked.blocked_by_user_id == body.send_user_id
+    ).to_list()
+    blocked_user_ids = {b.blocked_user_id for b in blocked_entries}
+
+    # Pick a random recipient
+    # (excluding the sender and anyone who blocked them)
     all_users = await User.find(
         User.user_id != body.send_user_id
     ).to_list()
 
-    if not all_users:
+    eligible = [u for u in all_users if u.user_id not in blocked_user_ids]
+
+    if not eligible:
         raise HTTPException(
             status_code=400,
             detail="No other users available to receive the message.",
         )
 
-    recipient = random.choice(all_users)
+    recipient = random.choice(eligible)
 
     message = Message(
         send_user_id=body.send_user_id,
