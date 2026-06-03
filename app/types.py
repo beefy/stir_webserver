@@ -132,6 +132,17 @@ class UnreadMessagesResponse(BaseModel):
     )
 
 
+class KarmaCountResponse(BaseModel):
+    """Response for GET /karma_count."""
+
+    karma: int = Field(
+        description=(
+            "Karma score: number of 'up' reactions minus number of "
+            "'down' reactions on messages sent by the authenticated user"
+        )
+    )
+
+
 class BlockedUserEntry(BaseModel):
     """A blocked user and the messages they sent to the blocker."""
 

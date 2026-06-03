@@ -13,6 +13,7 @@ from app.types import (
     BlockedUserEntry,
     BlockListResponse,
     BlockUserRequest,
+    KarmaCountResponse,
     MessageHistoryResponse,
     MessageOut,
     PaginationInfo,
@@ -178,6 +179,35 @@ async def unread_messages(
     ).count()
 
     return UnreadMessagesResponse(unread_count=count)
+
+
+@router.get(
+    "/karma_count",
+    response_model=KarmaCountResponse,
+    summary="Get karma score for the authenticated user",
+    description=(
+        "Calculates the karma score for the authenticated user based on "
+        "messages they have sent. Karma = (number of 'up' reactions) "
+        "minus (number of 'down' reactions). No request body is required."
+    ),
+)
+async def karma_count(
+    current_user: str = Depends(get_current_user),
+):
+    """Return the karma score for the authenticated user."""
+    # Count messages sent by the user with 'up' reaction
+    up_count = await Message.find(
+        Message.send_user_id == current_user,
+        Message.reaction_type == "up",
+    ).count()
+
+    # Count messages sent by the user with 'down' reaction
+    down_count = await Message.find(
+        Message.send_user_id == current_user,
+        Message.reaction_type == "down",
+    ).count()
+
+    return KarmaCountResponse(karma=up_count - down_count)
 
 
 @router.get(
