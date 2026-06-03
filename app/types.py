@@ -106,10 +106,22 @@ class MessageOut(BaseModel):
     )
 
 
+class PaginationInfo(BaseModel):
+    """Pagination metadata included in paginated responses."""
+
+    page: int = Field(description="Current page number (1-based)")
+    page_size: int = Field(description="Number of items per page")
+    total_items: int = Field(
+        description="Total number of items across all pages"
+    )
+    total_pages: int = Field(description="Total number of pages")
+
+
 class MessageHistoryResponse(BaseModel):
     """Response for GET /message_history."""
 
     messages: list[MessageOut]
+    pagination: PaginationInfo
 
 
 class UnreadMessagesResponse(BaseModel):
@@ -137,3 +149,4 @@ class BlockListResponse(BaseModel):
     blocked_users: list[BlockedUserEntry] = Field(
         description="List of blocked users with their messages"
     )
+    pagination: PaginationInfo

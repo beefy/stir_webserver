@@ -4,7 +4,9 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+import math
+
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 
 from app.auth import AuthError, verify_token
 from app.types import (
@@ -13,6 +15,7 @@ from app.types import (
     BlockUserRequest,
     MessageHistoryResponse,
     MessageOut,
+    PaginationInfo,
     ReactToMessageRequest,
     ReportMessageRequest,
     SendMessageRequest,
@@ -182,16 +185,33 @@ async def unread_messages(
     response_model=MessageHistoryResponse,
     summary="Get message history for the authenticated user",
     description=(
-        "Returns all messages where the authenticated user is the sender "
-        "or receiver. The other party's user ID is deterministically "
+        "Returns paginated messages where the authenticated user is the "
+        "sender or receiver. The other party's user ID is deterministically "
         "anonymized using SHA-256. Results are ordered by sent_timestamp "
-        "ascending."
+        "descending (latest first). Use the page and page_size query "
+        "parameters to control pagination."
     ),
 )
 async def message_history(
     current_user: str = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(
+        20, ge=1, le=100, description="Number of messages per page"
+    ),
 ):
-    """Return all messages where the user is sender or receiver."""
+    """Return paginated messages where the user is sender or receiver."""
+    # Count total matching messages
+    total_items = await Message.find(
+        {"$or": [
+            {"send_user_id": current_user},
+            {"receive_user_id": current_user},
+        ]}
+    ).count()
+
+    total_pages = max(1, math.ceil(total_items / page_size))
+    skip = (page - 1) * page_size
+
+    # Fetch the requested page, sorted newest-first
     messages = (
         await Message.find(
             {"$or": [
@@ -199,7 +219,9 @@ async def message_history(
                 {"receive_user_id": current_user},
             ]}
         )
-        .sort(Message.sent_timestamp)
+        .sort(-Message.sent_timestamp)
+        .skip(skip)
+        .limit(page_size)
         .to_list()
     )
 
@@ -239,7 +261,15 @@ async def message_history(
             )
         )
 
-    return MessageHistoryResponse(messages=out)
+    return MessageHistoryResponse(
+        messages=out,
+        pagination=PaginationInfo(
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        ),
+    )
 
 
 @router.post(
@@ -327,19 +357,38 @@ async def unblock_user(
     response_model=BlockListResponse,
     summary="Get block list for the authenticated user",
     description=(
-        "Returns a list of all user IDs that the authenticated user has "
-        "blocked, along with the messages each blocked user sent to them. "
-        "The returned user IDs are deterministically anonymized using "
-        "SHA-256."
+        "Returns a paginated list of all user IDs that the authenticated "
+        "user has blocked, along with the messages each blocked user sent "
+        "to them. The returned user IDs are deterministically anonymized "
+        "using SHA-256. Results are ordered by blocked_timestamp descending "
+        "(latest first). Use the page and page_size query parameters to "
+        "control pagination."
     ),
 )
 async def block_list(
     current_user: str = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(
+        20, ge=1, le=100, description="Number of blocked users per page"
+    ),
 ):
-    """Return all blocked users with their messages to the blocker."""
-    entries = await Blocked.find(
+    """Return paginated blocked users with their messages to the blocker."""
+    # Count total blocked users
+    total_items = await Blocked.find(
         Blocked.blocked_by_user_id == current_user
-    ).to_list()
+    ).count()
+
+    total_pages = max(1, math.ceil(total_items / page_size))
+    skip = (page - 1) * page_size
+
+    # Fetch the requested page, sorted newest-first by blocked_timestamp
+    entries = (
+        await Blocked.find(Blocked.blocked_by_user_id == current_user)
+        .sort(-Blocked.blocked_timestamp)
+        .skip(skip)
+        .limit(page_size)
+        .to_list()
+    )
 
     blocked_users: list[BlockedUserEntry] = []
     for entry in entries:
@@ -351,7 +400,7 @@ async def block_list(
                 Message.send_user_id == entry.blocked_user_id,
                 Message.receive_user_id == current_user,
             )
-            .sort(Message.sent_timestamp)
+            .sort(-Message.sent_timestamp)
             .to_list()
         )
 
@@ -376,7 +425,15 @@ async def block_list(
             )
         )
 
-    return BlockListResponse(blocked_users=blocked_users)
+    return BlockListResponse(
+        blocked_users=blocked_users,
+        pagination=PaginationInfo(
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        ),
+    )
 
 
 @router.post(
