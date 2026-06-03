@@ -92,6 +92,26 @@ async def send_message(
             detail="Message must be 255 characters or fewer.",
         )
 
+    # Rate limit: check if the user sent a message in the last 5 seconds
+    last_message = (
+        await Message.find(Message.send_user_id == current_user)
+        .sort(-Message.sent_timestamp)
+        .limit(1)
+        .to_list()
+    )
+    if last_message:
+        elapsed = (
+            datetime.now(timezone.utc) - last_message[0].sent_timestamp
+        ).total_seconds()
+        if elapsed < 5:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "You are sending messages too fast. "
+                    "Please wait before sending another message."
+                ),
+            )
+
     # Find users who have blocked the sender
     # (the sender should not be able to message them)
     blocked_entries = await Blocked.find(
