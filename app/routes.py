@@ -100,8 +100,10 @@ async def send_message(
         .to_list()
     )
     if last_message:
+        # sent_timestamp is stored as offset-naive UTC in MongoDB
         elapsed = (
-            datetime.now(timezone.utc) - last_message[0].sent_timestamp
+            datetime.now(timezone.utc).replace(tzinfo=None)
+            - last_message[0].sent_timestamp
         ).total_seconds()
         if elapsed < 5:
             raise HTTPException(
