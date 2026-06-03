@@ -18,6 +18,7 @@ from app.types import (
     SendMessageRequest,
     SuccessResponse,
     UnblockUserRequest,
+    UnreadMessagesResponse,
 )
 from app.utils import anonymize_user_id
 from models.blocked import Blocked
@@ -152,6 +153,28 @@ async def send_message(
     return SuccessResponse(
         detail="Message sent."
     )
+
+
+@router.get(
+    "/unread_messages",
+    response_model=UnreadMessagesResponse,
+    summary="Get unread message count for the authenticated user",
+    description=(
+        "Returns the number of messages received by the authenticated user "
+        "that have not yet been seen (seen_timestamp is null). No request "
+        "body is required."
+    ),
+)
+async def unread_messages(
+    current_user: str = Depends(get_current_user),
+):
+    """Return the count of unread messages for the authenticated user."""
+    count = await Message.find(
+        Message.receive_user_id == current_user,
+        Message.seen_timestamp == None,  # noqa: E711
+    ).count()
+
+    return UnreadMessagesResponse(unread_count=count)
 
 
 @router.get(

@@ -112,6 +112,14 @@ class MessageHistoryResponse(BaseModel):
     messages: list[MessageOut]
 
 
+class UnreadMessagesResponse(BaseModel):
+    """Response for GET /unread_messages."""
+
+    unread_count: int = Field(
+        description="Number of unread messages for the authenticated user"
+    )
+
+
 class BlockedUserEntry(BaseModel):
     """A blocked user and the messages they sent to the blocker."""
 
