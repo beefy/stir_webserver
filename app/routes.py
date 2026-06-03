@@ -220,6 +220,13 @@ async def block_user(
             detail=f"Message with message_id '{body.message_id}' not found.",
         )
 
+    # Only the receiver of the message can block the sender
+    if message.receive_user_id != current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only block users who have sent you a message.",
+        )
+
     blocked_user_id = message.send_user_id
 
     existing = await Blocked.find_one(
@@ -359,6 +366,13 @@ async def react_to_message(
             detail=f"Message with message_id '{body.message_id}' not found.",
         )
 
+    # Only the receiver of the message can react to it
+    if message.receive_user_id != current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only react to messages you received.",
+        )
+
     message.reaction_type = body.reaction_content
     await message.save()
 
@@ -386,6 +400,13 @@ async def report_message(
         raise HTTPException(
             status_code=404,
             detail=f"Message with message_id '{body.message_id}' not found.",
+        )
+
+    # Only the receiver of the message can report it
+    if message.receive_user_id != current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only report messages you received.",
         )
 
     message.reported = True
