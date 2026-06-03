@@ -1,0 +1,76 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    environment: production
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      SERVICE_NAME: stir-webserver
+      REPOSITORY_NAME: stir-webserver
+      IMAGE_NAME: webserver
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+    - name: Build Docker image
+      run: |
+        docker build \
+          -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_NAME }}/${{ env.IMAGE_NAME }}:latest \
+          .
+
+    - name: Push Docker image
+      run: |
+        docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_NAME }}/${{ env.IMAGE_NAME }}:latest
+
+    - name: Deploy to Cloud Run (Production)
+      run: |
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --image ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 8080 \
+          --memory 512Mi \
+          --cpu 1 \
+          --min-instances 0 \
+          --max-instances 10 \
+          --concurrency 1000 \
+          --timeout 300 \
+          --set-env-vars "MONGODB_CONNECTION_STRING=${{ secrets.MONGODB_CONNECTION_STRING }},MONGODB_DATABASE_NAME=${{ secrets.MONGODB_DATABASE_NAME }},AUTH_SERVICE_URL=${{ secrets.AUTH_SERVICE_URL }}"
+
+    - name: Get Cloud Run URL (Production)
+      run: |
+        SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.REGION }} --format 'value(status.url)')
+        echo "🚀 Production service deployed successfully!"
+        echo "📱 Service URL: $SERVICE_URL"
