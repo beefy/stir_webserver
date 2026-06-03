@@ -432,7 +432,7 @@ async def report_message(
 async def delete_account(
     current_user: str = Depends(get_current_user),
 ):
-    """Mark the authenticated user's account as deleted."""
+    """Delete the authenticated user's account and all related data."""
     user = await User.find_one(User.user_id == current_user)
     if user is None:
         raise HTTPException(
@@ -440,9 +440,29 @@ async def delete_account(
             detail="User not found.",
         )
 
+    # Delete all messages where the user is sender or receiver
+    msg_result = await Message.find(
+        {"$or": [
+            {"send_user_id": current_user},
+            {"receive_user_id": current_user},
+        ]}
+    ).delete()
+
+    # Delete all block records where the user is the blocker or blocked
+    block_result = await Blocked.find(
+        {"$or": [
+            {"blocked_by_user_id": current_user},
+            {"blocked_user_id": current_user},
+        ]}
+    ).delete()
+
+    # Mark the user as deleted
     user.is_deleted = True
     await user.save()
 
     return SuccessResponse(
-        detail="Account deleted."
+        detail=(
+            f"Account deleted. Removed {msg_result.deleted_count} message(s) "
+            f"and {block_result.deleted_count} block record(s)."
+        )
     )
