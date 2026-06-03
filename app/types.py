@@ -9,24 +9,10 @@ from pydantic import BaseModel, Field
 # Request models
 # ---------------------------------------------------------------------------
 
-class LoginRequest(BaseModel):
-    """Request body for POST /login."""
-
-    user_id: str = Field(
-        ...,
-        description="Firebase user ID to register",
-        json_schema_extra={"example": "firebase-uid-123"},
-    )
-
 
 class SendMessageRequest(BaseModel):
     """Request body for POST /send_message."""
 
-    send_user_id: str = Field(
-        ...,
-        description="Firebase user ID of the sender",
-        json_schema_extra={"example": "firebase-uid-123"},
-    )
     message_content: str = Field(
         ...,
         description="Text content of the message (max 255 characters)",
@@ -38,11 +24,6 @@ class SendMessageRequest(BaseModel):
 class BlockUserRequest(BaseModel):
     """Request body for POST /block_user."""
 
-    blocked_by_user_id: str = Field(
-        ...,
-        description="Firebase user ID of the user doing the blocking",
-        json_schema_extra={"example": "firebase-uid-123"},
-    )
     message_id: str = Field(
         ...,
         description=(
@@ -58,25 +39,10 @@ class BlockUserRequest(BaseModel):
 class UnblockUserRequest(BaseModel):
     """Request body for POST /unblock_user."""
 
-    blocked_by_user_id: str = Field(
-        ...,
-        description="Firebase user ID of the user who originally blocked",
-        json_schema_extra={"example": "firebase-uid-123"},
-    )
     blocked_user_id: str = Field(
         ...,
         description="Firebase user ID of the user being unblocked",
         json_schema_extra={"example": "firebase-uid-456"},
-    )
-
-
-class BlockListRequest(BaseModel):
-    """Request body for POST /block_list."""
-
-    blocked_by_user_id: str = Field(
-        ...,
-        description="Firebase user ID to fetch the block list for",
-        json_schema_extra={"example": "firebase-uid-123"},
     )
 
 

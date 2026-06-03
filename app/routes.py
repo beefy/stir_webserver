@@ -4,14 +4,13 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Header
 
+from app.auth import AuthError, verify_token
 from app.types import (
     BlockedUserEntry,
-    BlockListRequest,
     BlockListResponse,
     BlockUserRequest,
-    LoginRequest,
     MessageHistoryResponse,
     MessageOut,
     ReactToMessageRequest,
@@ -28,20 +27,48 @@ from models.user import User
 router = APIRouter()
 
 
+# ---------------------------------------------------------------------------
+# Dependency: extract authenticated user ID from the Authorization header
+# ---------------------------------------------------------------------------
+
+
+async def get_current_user(
+    authorization: str | None = Header(None),
+) -> str:
+    """Validate the Firebase token and return the authenticated user's UID."""
+    try:
+        return await verify_token(authorization)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
 @router.post(
     "/login",
     response_model=SuccessResponse,
     summary="Register a user",
-    description="Adds a user to the users table if they don't already exist.",
+    description=(
+        "Registers the authenticated user if they don't already exist. "
+        "The user ID is extracted from the Firebase auth token."
+    ),
 )
-async def login(body: LoginRequest):
-    """Register a user. If the user already exists, this is a no-op."""
-    existing = await User.find_one(User.user_id == body.user_id)
+async def login(
+    current_user: str = Depends(get_current_user),
+):
+    """Register the authenticated user. If already exists, this is a no-op."""
+    existing = await User.find_one(User.user_id == current_user)
     if existing is None:
-        user = User(user_id=body.user_id)
+        user = User(user_id=current_user)
         await user.insert()
-        return SuccessResponse(detail=f"User '{body.user_id}' registered.")
-    return SuccessResponse(detail=f"User '{body.user_id}' already exists.")
+        return SuccessResponse(detail=f"User '{current_user}' registered.")
+    return SuccessResponse(detail=f"User '{current_user}' already exists.")
 
 
 @router.post(
@@ -51,10 +78,13 @@ async def login(body: LoginRequest):
     description=(
         "Validates the message is 255 characters or fewer, picks a random "
         "recipient from the users table (excluding the sender), and inserts "
-        "the message."
+        "the message. The sender is determined from the auth token."
     ),
 )
-async def send_message(body: SendMessageRequest):
+async def send_message(
+    body: SendMessageRequest,
+    current_user: str = Depends(get_current_user),
+):
     """Send a message to a random user."""
     if len(body.message_content) > 255:
         raise HTTPException(
@@ -65,14 +95,14 @@ async def send_message(body: SendMessageRequest):
     # Find users who have blocked the sender
     # (the sender should not be able to message them)
     blocked_entries = await Blocked.find(
-        Blocked.blocked_user_id == body.send_user_id
+        Blocked.blocked_user_id == current_user
     ).to_list()
     blocked_by_user_ids = {b.blocked_by_user_id for b in blocked_entries}
 
     # Pick a random recipient
     # (excluding the sender and anyone who has blocked the sender)
     all_users = await User.find(
-        User.user_id != body.send_user_id
+        User.user_id != current_user
     ).to_list()
 
     eligible = [u for u in all_users if u.user_id not in blocked_by_user_ids]
@@ -87,7 +117,7 @@ async def send_message(body: SendMessageRequest):
 
     message = Message(
         message_id=str(uuid.uuid4()),
-        send_user_id=body.send_user_id,
+        send_user_id=current_user,
         receive_user_id=recipient.user_id,
         message=body.message_content,
         sent_timestamp=datetime.now(timezone.utc),
@@ -105,26 +135,23 @@ async def send_message(body: SendMessageRequest):
 @router.get(
     "/message_history",
     response_model=MessageHistoryResponse,
-    summary="Get message history for a user",
+    summary="Get message history for the authenticated user",
     description=(
-        "Returns all messages where the user is the sender or receiver. "
-        "The other party's user ID is deterministically anonymized using "
-        "SHA-256. Results are ordered by sent_timestamp ascending."
+        "Returns all messages where the authenticated user is the sender "
+        "or receiver. The other party's user ID is deterministically "
+        "anonymized using SHA-256. Results are ordered by sent_timestamp "
+        "ascending."
     ),
 )
 async def message_history(
-    user_id: str = Query(
-        ...,
-        description="User ID to fetch history for",
-        json_schema_extra={"example": "firebase-uid-123"},
-    ),
+    current_user: str = Depends(get_current_user),
 ):
     """Return all messages where the user is sender or receiver."""
     messages = (
         await Message.find(
             {"$or": [
-                {"send_user_id": user_id},
-                {"receive_user_id": user_id},
+                {"send_user_id": current_user},
+                {"receive_user_id": current_user},
             ]}
         )
         .sort(Message.sent_timestamp)
@@ -134,14 +161,14 @@ async def message_history(
     # Mark messages as seen where the requesting user is the receiver
     now = datetime.now(timezone.utc)
     for msg in messages:
-        if msg.receive_user_id == user_id and msg.seen_timestamp is None:
+        if msg.receive_user_id == current_user and msg.seen_timestamp is None:
             msg.seen_timestamp = now
             await msg.save()
 
     out: list[MessageOut] = []
     for msg in messages:
         # Anonymize the "other" user
-        if msg.send_user_id == user_id:
+        if msg.send_user_id == current_user:
             other_id = anonymize_user_id(msg.receive_user_id)
         else:
             other_id = anonymize_user_id(msg.send_user_id)
@@ -150,10 +177,14 @@ async def message_history(
             MessageOut(
                 message_id=msg.message_id,
                 send_user_id=(
-                    user_id if msg.send_user_id == user_id else other_id
+                    current_user
+                    if msg.send_user_id == current_user
+                    else other_id
                 ),
                 receive_user_id=(
-                    user_id if msg.receive_user_id == user_id else other_id
+                    current_user
+                    if msg.receive_user_id == current_user
+                    else other_id
                 ),
                 message=msg.message,
                 sent_timestamp=msg.sent_timestamp,
@@ -171,11 +202,15 @@ async def message_history(
     response_model=SuccessResponse,
     summary="Block a user",
     description=(
-        "Adds a record to the blocked table. If the block record already "
+        "Blocks the sender of the specified message. The blocker is "
+        "determined from the auth token. If the block record already "
         "exists, this is a no-op."
     ),
 )
-async def block_user(body: BlockUserRequest):
+async def block_user(
+    body: BlockUserRequest,
+    current_user: str = Depends(get_current_user),
+):
     """Block the sender of a message. If already blocked, this is a no-op."""
     # Look up the message to find the sender
     message = await Message.find_one(Message.message_id == body.message_id)
@@ -188,13 +223,13 @@ async def block_user(body: BlockUserRequest):
     blocked_user_id = message.send_user_id
 
     existing = await Blocked.find_one(
-        Blocked.blocked_by_user_id == body.blocked_by_user_id,
+        Blocked.blocked_by_user_id == current_user,
         Blocked.blocked_user_id == blocked_user_id,
     )
     if existing is None:
         entry = Blocked(
             blocked_user_id=blocked_user_id,
-            blocked_by_user_id=body.blocked_by_user_id,
+            blocked_by_user_id=current_user,
             blocked_timestamp=datetime.now(timezone.utc),
         )
         await entry.insert()
@@ -211,40 +246,47 @@ async def block_user(body: BlockUserRequest):
     response_model=SuccessResponse,
     summary="Unblock a user",
     description=(
-        "Removes the block record from the blocked table if it exists. "
-        "If no such block exists, this is a no-op."
+        "Removes the block record for the specified user. The unblocker is "
+        "determined from the auth token. If no such block exists, this is "
+        "a no-op."
     ),
 )
-async def unblock_user(body: UnblockUserRequest):
+async def unblock_user(
+    body: UnblockUserRequest,
+    current_user: str = Depends(get_current_user),
+):
     """Unblock a user. If not currently blocked, this is a no-op."""
     existing = await Blocked.find_one(
-        Blocked.blocked_by_user_id == body.blocked_by_user_id,
+        Blocked.blocked_by_user_id == current_user,
         Blocked.blocked_user_id == body.blocked_user_id,
     )
     if existing is not None:
         await existing.delete()
         return SuccessResponse(
-            detail=f"User unblocked."
+            detail="User unblocked."
         )
     return SuccessResponse(
-        detail=f"User was not blocked."
+        detail="User was not blocked."
     )
 
 
 @router.post(
     "/block_list",
     response_model=BlockListResponse,
-    summary="Get block list for a user",
+    summary="Get block list for the authenticated user",
     description=(
-        "Returns a list of all user IDs that the specified user has "
-        "blocked. The returned user IDs are deterministically anonymized "
-        "using SHA-256."
+        "Returns a list of all user IDs that the authenticated user has "
+        "blocked, along with the messages each blocked user sent to them. "
+        "The returned user IDs are deterministically anonymized using "
+        "SHA-256."
     ),
 )
-async def block_list(body: BlockListRequest):
+async def block_list(
+    current_user: str = Depends(get_current_user),
+):
     """Return all blocked users with their messages to the blocker."""
     entries = await Blocked.find(
-        Blocked.blocked_by_user_id == body.blocked_by_user_id
+        Blocked.blocked_by_user_id == current_user
     ).to_list()
 
     blocked_users: list[BlockedUserEntry] = []
@@ -255,7 +297,7 @@ async def block_list(body: BlockListRequest):
         messages = (
             await Message.find(
                 Message.send_user_id == entry.blocked_user_id,
-                Message.receive_user_id == body.blocked_by_user_id,
+                Message.receive_user_id == current_user,
             )
             .sort(Message.sent_timestamp)
             .to_list()
@@ -265,7 +307,7 @@ async def block_list(body: BlockListRequest):
             MessageOut(
                 message_id=msg.message_id,
                 send_user_id=anonymized_id,
-                receive_user_id=body.blocked_by_user_id,
+                receive_user_id=current_user,
                 message=msg.message,
                 sent_timestamp=msg.sent_timestamp,
                 seen_timestamp=msg.seen_timestamp,
@@ -294,7 +336,10 @@ async def block_list(body: BlockListRequest):
         "'up', 'down', or null (to clear the reaction)."
     ),
 )
-async def react_to_message(body: ReactToMessageRequest):
+async def react_to_message(
+    body: ReactToMessageRequest,
+    current_user: str = Depends(get_current_user),
+):
     """Set or clear a reaction on a message."""
     VALID_REACTIONS = {"up", "down", None}
 
@@ -331,7 +376,10 @@ async def react_to_message(body: ReactToMessageRequest):
     summary="Report a message",
     description="Sets the reported flag to true for the specified message.",
 )
-async def report_message(body: ReportMessageRequest):
+async def report_message(
+    body: ReportMessageRequest,
+    current_user: str = Depends(get_current_user),
+):
     """Mark a message as reported."""
     message = await Message.find_one(Message.message_id == body.message_id)
     if message is None:
