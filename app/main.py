@@ -52,10 +52,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Allow CORS from any origin (the frontend may be on a different port/domain)
+# Allow CORS from the frontend domain and local development origins.
+# When allow_credentials=True, browsers require a specific origin,
+# not "*".  The CORSMiddleware will reflect the request's Origin
+# header for any origin in this list.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://stirdotcom.net",
+        "https://www.stirdotcom.net",
+        "http://localhost:5173",   # Vite dev server
+        "http://localhost:3000",   # Alternative dev port
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
