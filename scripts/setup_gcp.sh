@@ -190,6 +190,23 @@ setup_workload_identity() {
     print_info "Workload Identity Federation configured!"
 }
 
+grant_secret_manager_access() {
+    print_step "Granting Cloud Run runtime service account access to Secret Manager..."
+
+    # The default Compute Engine service account is used by Cloud Run
+    # when no custom service account is specified.
+    COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+    print_info "Granting roles/secretmanager.secretAccessor to $COMPUTE_SA..."
+
+    gcloud projects add-iam-policy-binding $PROJECT_ID \
+        --member="serviceAccount:${COMPUTE_SA}" \
+        --role="roles/secretmanager.secretAccessor"
+
+    print_info "Secret Manager access granted!"
+    print_warning "This allows the auth microservice (stir-auth-server) to read Firebase service account secrets from Secret Manager on startup."
+}
+
 print_summary() {
     print_step "Setup completed! Here's what you need to configure in GitHub:"
     echo ""
@@ -219,6 +236,17 @@ print_summary() {
     echo "4. After deployment, run ./scripts/setup_domain.sh to configure api.stirdotcom.net"
     echo "5. Check the Actions tab in GitHub to monitor the deployment"
     echo ""
+    echo -e "${YELLOW}Troubleshooting:${NC}"
+    echo "If the container fails to start with 'failed to start and listen on the port',"
+    echo "the auth microservice (stir-auth-server) likely can't read Firebase secrets"
+    echo "from Secret Manager. Run this command to fix:"
+    echo ""
+    echo "gcloud projects add-iam-policy-binding $PROJECT_ID \\"
+    echo "  --member=\"serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com\" \\"
+    echo "  --role=\"roles/secretmanager.secretAccessor\""
+    echo ""
+    echo "This grants the Cloud Run runtime service account access to read secrets."
+    echo ""
     echo -e "${YELLOW}For staging environment:${NC}"
     echo "Run this script again with: ./scripts/setup_gcp.sh staging"
     echo "Then run: ./scripts/setup_domain.sh staging"
@@ -233,6 +261,7 @@ main() {
     create_artifact_registry
     create_service_account
     setup_workload_identity
+    grant_secret_manager_access
     print_summary
 }
 
