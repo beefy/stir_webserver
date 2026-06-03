@@ -328,28 +328,44 @@ async def block_user(
     response_model=SuccessResponse,
     summary="Unblock a user",
     description=(
-        "Removes the block record for the specified user. The unblocker is "
-        "determined from the auth token. If no such block exists, this is "
-        "a no-op."
+        "Removes the block record for the specified user. The "
+        "blocked_user_id can be either the anonymized ID (anon_...) "
+        "returned by /block_list or the raw Firebase UID. The "
+        "unblocker is determined from the auth token. If no such "
+        "block exists, this is a no-op."
     ),
 )
 async def unblock_user(
     body: UnblockUserRequest,
     current_user: str = Depends(get_current_user),
 ):
-    """Unblock a user. If not currently blocked, this is a no-op."""
+    """Unblock a user. Accepts anonymized or raw user ID."""
+    # If the ID starts with "anon_", resolve it by iterating the
+    # user's blocked entries and matching the anonymized form.
+    if body.blocked_user_id.startswith("anon_"):
+        entries = await Blocked.find(
+            Blocked.blocked_by_user_id == current_user
+        ).to_list()
+        matched = None
+        for entry in entries:
+            anon = anonymize_user_id(entry.blocked_user_id)
+            if anon == body.blocked_user_id:
+                matched = entry
+                break
+        if matched is not None:
+            await matched.delete()
+            return SuccessResponse(detail="User unblocked.")
+        return SuccessResponse(detail="User was not blocked.")
+
+    # Otherwise treat it as a raw Firebase UID
     existing = await Blocked.find_one(
         Blocked.blocked_by_user_id == current_user,
         Blocked.blocked_user_id == body.blocked_user_id,
     )
     if existing is not None:
         await existing.delete()
-        return SuccessResponse(
-            detail="User unblocked."
-        )
-    return SuccessResponse(
-        detail="User was not blocked."
-    )
+        return SuccessResponse(detail="User unblocked.")
+    return SuccessResponse(detail="User was not blocked.")
 
 
 @router.post(
