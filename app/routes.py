@@ -100,9 +100,11 @@ async def send_message(
     blocked_by_user_ids = {b.blocked_by_user_id for b in blocked_entries}
 
     # Pick a random recipient
-    # (excluding the sender and anyone who has blocked the sender)
+    # (excluding the sender, deleted users, and anyone who has blocked
+    # the sender)
     all_users = await User.find(
-        User.user_id != current_user
+        User.user_id != current_user,
+        User.is_deleted == False,  # noqa: E712 — Beanie requires == False
     ).to_list()
 
     eligible = [u for u in all_users if u.user_id not in blocked_by_user_ids]
@@ -414,4 +416,33 @@ async def report_message(
 
     return SuccessResponse(
         detail=f"Message {body.message_id} reported."
+    )
+
+
+@router.post(
+    "/delete_account",
+    response_model=SuccessResponse,
+    summary="Delete the authenticated user's account",
+    description=(
+        "Sets the is_deleted flag to true for the authenticated user. "
+        "The user will no longer appear as an eligible recipient for "
+        "new messages."
+    ),
+)
+async def delete_account(
+    current_user: str = Depends(get_current_user),
+):
+    """Mark the authenticated user's account as deleted."""
+    user = await User.find_one(User.user_id == current_user)
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found.",
+        )
+
+    user.is_deleted = True
+    await user.save()
+
+    return SuccessResponse(
+        detail="Account deleted."
     )
