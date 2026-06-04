@@ -6,9 +6,7 @@ from datetime import datetime, timezone
 
 import math
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
-
-from app.auth import AuthError, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.types import (
     BlockedUserEntry,
     BlockListResponse,
@@ -24,30 +22,12 @@ from app.types import (
     UnblockUserRequest,
     UnreadMessagesResponse,
 )
-from app.utils import anonymize_user_id
+from app.utils import anonymize_user_id, get_current_user
 from models.blocked import Blocked
 from models.message import Message
 from models.user import User
 
 router = APIRouter()
-
-
-# ---------------------------------------------------------------------------
-# Dependency: extract authenticated user ID from the Authorization header
-# ---------------------------------------------------------------------------
-
-
-async def get_current_user(
-    authorization: str | None = Header(None),
-) -> str:
-    """Validate the Firebase token and return the authenticated user's UID."""
-    try:
-        return await verify_token(authorization)
-    except AuthError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.detail,
-        )
 
 
 # ---------------------------------------------------------------------------
