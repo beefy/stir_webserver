@@ -18,6 +18,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.routes import router
 from models.blocked import Blocked
 from models.message import Message
+from models.message_lineage import MessageLineage
 from models.user import User
 
 
@@ -40,7 +41,7 @@ async def lifespan(app: FastAPI):
 
     await init_beanie(
         database=database,
-        document_models=[Message, User, Blocked],
+        document_models=[Message, User, Blocked, MessageLineage],
     )
     yield
 

@@ -61,6 +61,16 @@ class ReactToMessageRequest(BaseModel):
     )
 
 
+class ForwardMessageRequest(BaseModel):
+    """Request body for POST /forward_message."""
+
+    message_id: str = Field(
+        ...,
+        description="UUID of the message to forward",
+        json_schema_extra={"example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
+    )
+
+
 class ReportMessageRequest(BaseModel):
     """Request body for POST /report_message."""
 
@@ -103,6 +113,17 @@ class MessageOut(BaseModel):
     )
     reported: bool = Field(
         description="Whether the message has been reported"
+    )
+    forward_count: int = Field(
+        default=0,
+        description="Number of times this message has been forwarded",
+    )
+    total_karma: int = Field(
+        default=0,
+        description=(
+            "Total karma for this message including karma from "
+            "forwarded copies"
+        ),
     )
 
 

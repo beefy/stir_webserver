@@ -13,6 +13,7 @@ from app.types import (
     BlockedUserEntry,
     BlockListResponse,
     BlockUserRequest,
+    ForwardMessageRequest,
     KarmaCountResponse,
     MessageHistoryResponse,
     MessageOut,
@@ -27,6 +28,7 @@ from app.types import (
 from app.utils import anonymize_user_id
 from models.blocked import Blocked
 from models.message import Message
+from models.message_lineage import MessageLineage
 from models.user import User
 
 router = APIRouter()
@@ -48,6 +50,71 @@ async def get_current_user(
             status_code=exc.status_code,
             detail=exc.detail,
         )
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+async def _send_message_to_user(
+    sender_user_id: str,
+    message_content: str,
+    recipient_user_id: str,
+) -> Message:
+    """Create and insert a message.
+
+    This is the core send logic used by both ``/send_message`` and
+    ``/forward_message``.  It does **not** perform rate-limiting or
+    eligibility checks — the caller is responsible for those.
+    """
+    message = Message(
+        message_id=str(uuid.uuid4()),
+        send_user_id=sender_user_id,
+        receive_user_id=recipient_user_id,
+        message=message_content,
+        sent_timestamp=datetime.now(timezone.utc),
+        seen_timestamp=None,
+        reaction_type=None,
+        reported=False,
+    )
+    await message.insert()
+    return message
+
+
+async def _get_forward_stats(
+    message_id: str,
+    original_sender_user_id: str,
+) -> tuple[int, int]:
+    """Return ``(forward_count, total_karma)`` for a message.
+
+    *forward_count* is the number of times this message (as the original)
+    has been forwarded.  *total_karma* is the sum of karma from the original
+    message plus all forwarded copies.
+    """
+    # Count forwards where this message is the original
+    forward_count = await MessageLineage.find(
+        MessageLineage.original_message_id == message_id,
+    ).count()
+
+    # Collect all message IDs in the forward chain (original + clones)
+    lineage_records = await MessageLineage.find(
+        MessageLineage.original_message_id == message_id,
+    ).to_list()
+    all_message_ids = [message_id] + [
+        r.cloned_message_id for r in lineage_records
+    ]
+
+    # Sum karma across all copies
+    total_karma = 0
+    for mid in all_message_ids:
+        msg = await Message.find_one(Message.message_id == mid)
+        if msg and msg.reaction_type == "up":
+            total_karma += 1
+        elif msg and msg.reaction_type == "down":
+            total_karma -= 1
+
+    return forward_count, total_karma
 
 
 # ---------------------------------------------------------------------------
@@ -142,20 +209,106 @@ async def send_message(
 
     recipient = random.choice(eligible)
 
-    message = Message(
-        message_id=str(uuid.uuid4()),
-        send_user_id=current_user,
-        receive_user_id=recipient.user_id,
-        message=body.message_content,
-        sent_timestamp=datetime.now(timezone.utc),
-        seen_timestamp=None,
-        reaction_type=None,
-        reported=False,
+    await _send_message_to_user(
+        sender_user_id=current_user,
+        message_content=body.message_content,
+        recipient_user_id=recipient.user_id,
     )
-    await message.insert()
 
     return SuccessResponse(
         detail="Message sent."
+    )
+
+
+@router.post(
+    "/forward_message",
+    response_model=SuccessResponse,
+    summary="Forward a message to a random user",
+    description=(
+        "Forwards the specified message to a random eligible recipient. "
+        "The authenticated user must be the receiver of the original "
+        "message. The forwarded message content is copied from the "
+        "original, and a message_lineage record is created to track "
+        "the forward chain."
+    ),
+)
+async def forward_message(
+    body: ForwardMessageRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """Forward a received message to a random user."""
+    # Look up the original message
+    original_message = await Message.find_one(
+        Message.message_id == body.message_id
+    )
+    if original_message is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Message with message_id '{body.message_id}' not found.",
+        )
+
+    # Only the receiver of the message can forward it
+    if original_message.receive_user_id != current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only forward messages you received.",
+        )
+
+    # Determine the original message ID for the lineage chain.
+    # If the message being forwarded was itself a forward, use the
+    # original_message_id from the existing lineage record.
+    existing_lineage = await MessageLineage.find_one(
+        MessageLineage.cloned_message_id == body.message_id,
+    )
+    if existing_lineage is not None:
+        original_message_id = existing_lineage.original_message_id
+        original_sender_user_id = existing_lineage.original_sender_user_id
+    else:
+        original_message_id = body.message_id
+        original_sender_user_id = original_message.send_user_id
+
+    # Find users who have blocked the forwarder
+    blocked_entries = await Blocked.find(
+        Blocked.blocked_user_id == current_user
+    ).to_list()
+    blocked_by_user_ids = {b.blocked_by_user_id for b in blocked_entries}
+
+    # Pick a random recipient (excluding the forwarder and anyone
+    # who has blocked the forwarder)
+    all_users = await User.find(
+        User.user_id != current_user,
+    ).to_list()
+
+    eligible = [u for u in all_users if u.user_id not in blocked_by_user_ids]
+
+    if not eligible:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No other users available to receive "
+                "the forwarded message."
+            ),
+        )
+
+    recipient = random.choice(eligible)
+
+    # Create the forwarded message using the shared utility
+    cloned_message = await _send_message_to_user(
+        sender_user_id=current_user,
+        message_content=original_message.message,
+        recipient_user_id=recipient.user_id,
+    )
+
+    # Record the lineage
+    lineage = MessageLineage(
+        original_message_id=original_message_id,
+        cloned_message_id=cloned_message.message_id,
+        original_sender_user_id=original_sender_user_id,
+    )
+    await lineage.insert()
+
+    return SuccessResponse(
+        detail="Message forwarded."
     )
 
 
@@ -187,8 +340,9 @@ async def unread_messages(
     summary="Get karma score for the authenticated user",
     description=(
         "Calculates the karma score for the authenticated user based on "
-        "messages they have sent. Karma = (number of 'up' reactions) "
-        "minus (number of 'down' reactions). No request body is required."
+        "messages they have sent, including karma from forwarded copies. "
+        "Karma = (number of 'up' reactions) minus (number of 'down' "
+        "reactions). No request body is required."
     ),
 )
 async def karma_count(
@@ -207,7 +361,23 @@ async def karma_count(
         Message.reaction_type == "down",
     ).count()
 
-    return KarmaCountResponse(karma=up_count - down_count)
+    karma = up_count - down_count
+
+    # Add karma from forwarded messages where the user is the original sender
+    lineage_records = await MessageLineage.find(
+        MessageLineage.original_sender_user_id == current_user,
+    ).to_list()
+
+    for record in lineage_records:
+        cloned_msg = await Message.find_one(
+            Message.message_id == record.cloned_message_id
+        )
+        if cloned_msg and cloned_msg.reaction_type == "up":
+            karma += 1
+        elif cloned_msg and cloned_msg.reaction_type == "down":
+            karma -= 1
+
+    return KarmaCountResponse(karma=karma)
 
 
 @router.get(
@@ -270,6 +440,14 @@ async def message_history(
         else:
             other_id = anonymize_user_id(msg.send_user_id)
 
+        # Get forward stats for messages the user sent
+        forward_count = 0
+        total_karma = 0
+        if msg.send_user_id == current_user:
+            forward_count, total_karma = await _get_forward_stats(
+                msg.message_id, current_user
+            )
+
         out.append(
             MessageOut(
                 message_id=msg.message_id,
@@ -288,6 +466,8 @@ async def message_history(
                 seen_timestamp=msg.seen_timestamp,
                 reaction_type=msg.reaction_type,
                 reported=msg.reported,
+                forward_count=forward_count,
+                total_karma=total_karma,
             )
         )
 
