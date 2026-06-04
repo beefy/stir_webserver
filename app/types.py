@@ -125,6 +125,13 @@ class MessageOut(BaseModel):
             "forwarded copies"
         ),
     )
+    forwarded: bool = Field(
+        default=False,
+        description=(
+            "Whether the authenticated user has already forwarded "
+            "this message (only relevant for received messages)"
+        ),
+    )
 
 
 class PaginationInfo(BaseModel):

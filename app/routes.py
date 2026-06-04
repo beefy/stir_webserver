@@ -476,9 +476,15 @@ async def message_history(
         # Get forward stats for messages the user sent
         forward_count = 0
         total_karma = 0
+        forwarded = False
         if msg.send_user_id == current_user:
             forward_count, total_karma = await _get_forward_stats(
                 msg.message_id, current_user
+            )
+        else:
+            # For received messages, check if the user has forwarded it
+            forwarded = await _has_user_forwarded_message(
+                current_user, msg.message_id
             )
 
         out.append(
@@ -501,6 +507,7 @@ async def message_history(
                 reported=msg.reported,
                 forward_count=forward_count,
                 total_karma=total_karma,
+                forwarded=forwarded,
             )
         )
 
