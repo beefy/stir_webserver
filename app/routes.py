@@ -117,6 +117,29 @@ async def _get_forward_stats(
     return forward_count, total_karma
 
 
+async def _has_user_forwarded_message(
+    user_id: str,
+    original_message_id: str,
+) -> bool:
+    """Check if *user_id* has already forwarded the given original message.
+
+    Looks for a lineage record where the original_message_id matches and
+    the cloned message was sent by *user_id*.
+    """
+    lineage_records = await MessageLineage.find(
+        MessageLineage.original_message_id == original_message_id,
+    ).to_list()
+
+    for record in lineage_records:
+        cloned_msg = await Message.find_one(
+            Message.message_id == record.cloned_message_id
+        )
+        if cloned_msg and cloned_msg.send_user_id == user_id:
+            return True
+
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -266,6 +289,16 @@ async def forward_message(
     else:
         original_message_id = body.message_id
         original_sender_user_id = original_message.send_user_id
+
+    # Check if the user has already forwarded this message
+    already_forwarded = await _has_user_forwarded_message(
+        current_user, original_message_id
+    )
+    if already_forwarded:
+        raise HTTPException(
+            status_code=400,
+            detail="You have already forwarded this message.",
+        )
 
     # Find users who have blocked the forwarder
     blocked_entries = await Blocked.find(
