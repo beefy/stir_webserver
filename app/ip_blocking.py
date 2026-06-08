@@ -83,43 +83,49 @@ def _set_cache(
 IP_API_URL = "http://ip-api.com/json/"
 
 
-async def _lookup_ip(ip: str) -> tuple[str | None, str | None]:
+async def _lookup_ip(
+    ip: str,
+) -> tuple[str | None, str | None, bool]:
     """Look up an IP address via ip-api.com.
 
     Returns:
-        A tuple of (country_code, state_code). Either may be None if the
-        lookup fails or the IP is invalid (e.g. a private IP).
+        A tuple of (country_code, state_code, is_proxy). ``is_proxy`` is
+        ``True`` if the IP is a VPN, proxy, or hosting provider. Either
+        country/state may be None if the lookup fails or the IP is
+        private.
     """
     # Don't look up private / loopback IPs
     if ip in ("127.0.0.1", "::1", "localhost") or ip.startswith(
         ("10.", "172.16.", "192.168.")
     ):
-        return None, None
+        return None, None, False
 
     cached = _get_cached(ip)
     if cached is not None:
-        return cached
+        country_code, state_code = cached
+        return country_code, state_code, False
 
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{IP_API_URL}{ip}",
-                params={"fields": "countryCode,region"},
+                params={"fields": "countryCode,region,proxy"},
                 timeout=5.0,
             )
     except (httpx.RequestError, httpx.TimeoutException):
         # Fail open: allow the request if geolocation is unavailable
-        return None, None
+        return None, None, False
 
     if response.status_code != 200:
-        return None, None
+        return None, None, False
 
     data = response.json()
     country_code: str | None = data.get("countryCode") or None
     state_code: str | None = data.get("region") or None
+    is_proxy: bool = data.get("proxy", False)
 
     _set_cache(ip, country_code, state_code)
-    return country_code, state_code
+    return country_code, state_code, is_proxy
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +156,20 @@ class IPBlockingMiddleware(BaseHTTPMiddleware):
         if client_ip is None:
             return await call_next(request)
 
-        country_code, state_code = await _lookup_ip(client_ip)
+        country_code, state_code, is_proxy = await _lookup_ip(client_ip)
+
+        # Block VPN / proxy usage (enabled by default; set BLOCK_VPN=false
+        # to disable)
+        if is_proxy and os.getenv("BLOCK_VPN", "true").lower() != "false":
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": (
+                        "Access is not available from VPN or proxy "
+                        "connections."
+                    ),
+                },
+            )
 
         # Check country-level restrictions
         if country_code and country_code in RESTRICTED_COUNTRIES:
