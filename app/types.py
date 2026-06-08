@@ -154,6 +154,62 @@ class BlockedUserEntry(BaseModel):
     )
 
 
+class FirebaseUserInfo(BaseModel):
+    """Firebase user account data returned from the auth microservice."""
+
+    uid: str = Field(description="Firebase user UID")
+    email: str | None = Field(None, description="User's email address")
+    email_verified: bool | None = Field(
+        None, description="Whether email is verified"
+    )
+    display_name: str | None = Field(
+        None, description="User's display name"
+    )
+    photo_url: str | None = Field(
+        None, description="URL to user's profile photo"
+    )
+    phone_number: str | None = Field(
+        None, description="User's phone number"
+    )
+    disabled: bool | None = Field(
+        None, description="Whether the account is disabled"
+    )
+    creation_time: str | None = Field(
+        None,
+        description="When the Firebase account was created",
+    )
+    last_sign_in_time: str | None = Field(
+        None,
+        description="When the user last signed in",
+    )
+
+
+class ViewAccountResponse(BaseModel):
+    """Response for GET /view_account."""
+
+    firebase: FirebaseUserInfo = Field(
+        description="User account data from Firebase"
+    )
+    user: dict | None = Field(
+        description="User document from MongoDB (users collection)"
+    )
+    messages: list[dict] = Field(
+        default_factory=list,
+        description="Messages where the user is sender or receiver "
+        "(messages collection)",
+    )
+    blocked_by_me: list[dict] = Field(
+        default_factory=list,
+        description="Users blocked by the authenticated user "
+        "(blocked collection)",
+    )
+    blocked_me: list[dict] = Field(
+        default_factory=list,
+        description="Users who have blocked the authenticated user "
+        "(blocked collection)",
+    )
+
+
 class BlockListResponse(BaseModel):
     """Response for POST /block_list."""
 

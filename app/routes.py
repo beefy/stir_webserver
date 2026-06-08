@@ -6,11 +6,13 @@ from datetime import datetime, timezone
 
 import math
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from app.auth import AuthError, get_firebase_user
 from app.types import (
     BlockedUserEntry,
     BlockListResponse,
     BlockUserRequest,
+    FirebaseUserInfo,
     KarmaCountResponse,
     MessageHistoryResponse,
     MessageOut,
@@ -21,6 +23,7 @@ from app.types import (
     SuccessResponse,
     UnblockUserRequest,
     UnreadMessagesResponse,
+    ViewAccountResponse,
 )
 from app.utils import anonymize_user_id, get_current_user
 from models.blocked import Blocked
@@ -542,6 +545,83 @@ async def report_message(
 
     return SuccessResponse(
         detail=f"Message {body.message_id} reported."
+    )
+
+
+@router.get(
+    "/view_account",
+    response_model=ViewAccountResponse,
+    summary="View account details",
+    description=(
+        "Returns all data about the authenticated user's account, "
+        "including the Firebase user record and all associated data "
+        "from MongoDB (user document, messages, and block records)."
+    ),
+)
+async def view_account(
+    authorization: str | None = Header(None),
+    current_user: str = Depends(get_current_user),
+):
+    """Return Firebase and all MongoDB data for the authenticated user."""
+    # Fetch the full Firebase user record
+    try:
+        firebase_data = await get_firebase_user(authorization)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        )
+
+    def _serialize(obj: dict) -> dict:
+        """Convert PydanticObjectId to string and anonymize non-self
+        user IDs for JSON serialization."""
+        result = {}
+        for k, v in obj.items():
+            # Convert ObjectId to string
+            if hasattr(v, "__class__") and "ObjectId" in type(v).__name__:
+                result[k] = str(v)
+            # Anonymize user ID fields that don't belong to the
+            # authenticated user
+            elif k in ("send_user_id", "receive_user_id",
+                       "blocked_user_id", "blocked_by_user_id"):
+                result[k] = (
+                    v if v == current_user else anonymize_user_id(v)
+                )
+            else:
+                result[k] = v
+        return result
+
+    # Fetch the MongoDB user document
+    user_doc = await User.find_one(User.user_id == current_user)
+    user_data = _serialize(user_doc.model_dump()) if user_doc else None
+
+    # Fetch all messages where the user is sender or receiver
+    messages = await Message.find(
+        {"$or": [
+            {"send_user_id": current_user},
+            {"receive_user_id": current_user},
+        ]}
+    ).sort(-Message.sent_timestamp).to_list()
+    messages_data = [_serialize(m.model_dump()) for m in messages]
+
+    # Fetch block records where the user is the blocker
+    blocked_by_me = await Blocked.find(
+        Blocked.blocked_by_user_id == current_user
+    ).sort(-Blocked.blocked_timestamp).to_list()
+    blocked_by_me_data = [_serialize(b.model_dump()) for b in blocked_by_me]
+
+    # Fetch block records where the user is the blocked user
+    blocked_me = await Blocked.find(
+        Blocked.blocked_user_id == current_user
+    ).sort(-Blocked.blocked_timestamp).to_list()
+    blocked_me_data = [_serialize(b.model_dump()) for b in blocked_me]
+
+    return ViewAccountResponse(
+        firebase=FirebaseUserInfo(**firebase_data),
+        user=user_data,
+        messages=messages_data,
+        blocked_by_me=blocked_by_me_data,
+        blocked_me=blocked_me_data,
     )
 
 
