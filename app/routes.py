@@ -650,7 +650,7 @@ async def view_account(
     ).to_list()
     user_message_ids = [m.message_id for m in user_messages]
     moderations = await Moderation.find(
-        Moderation.message_id.is_in(user_message_ids)
+        {"message_id": {"$in": user_message_ids}}
     ).sort(-Moderation.moderation_datetime).to_list()
     moderations_data = [_serialize(m.model_dump()) for m in moderations]
 
@@ -712,7 +712,7 @@ async def delete_account(
 
     # Delete moderation records for messages involving the user
     mod_result = await Moderation.find(
-        Moderation.message_id.is_in(user_message_ids)
+        {"message_id": {"$in": user_message_ids}}
     ).delete()
 
     # Delete the user document
