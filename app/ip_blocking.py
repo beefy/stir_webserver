@@ -80,7 +80,10 @@ def _set_cache(
 # Geolocation lookup
 # ---------------------------------------------------------------------------
 
-IP_API_URL = "http://ip-api.com/json/"
+IP_API_URL = "https://pro.ip-api.com/json/"
+
+# API key for pro.ip-api.com (set via IP_API_KEY env var)
+IP_API_KEY = os.getenv("IP_API_KEY", "")
 
 
 class IPLookupError(Exception):
@@ -112,11 +115,16 @@ async def _lookup_ip(
         country_code, state_code = cached
         return country_code, state_code, False
 
+    # Build query params with API key if available
+    params: dict[str, str] = {"fields": "countryCode,region,proxy"}
+    if IP_API_KEY:
+        params["key"] = IP_API_KEY
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{IP_API_URL}{ip}",
-                params={"fields": "countryCode,region,proxy"},
+                params=params,
                 timeout=5.0,
             )
     except (httpx.RequestError, httpx.TimeoutException):
