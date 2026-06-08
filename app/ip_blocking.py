@@ -83,6 +83,10 @@ def _set_cache(
 IP_API_URL = "http://ip-api.com/json/"
 
 
+class IPLookupError(Exception):
+    """Raised when IP geolocation lookup fails."""
+
+
 async def _lookup_ip(
     ip: str,
 ) -> tuple[str | None, str | None, bool]:
@@ -91,8 +95,11 @@ async def _lookup_ip(
     Returns:
         A tuple of (country_code, state_code, is_proxy). ``is_proxy`` is
         ``True`` if the IP is a VPN, proxy, or hosting provider. Either
-        country/state may be None if the lookup fails or the IP is
-        private.
+        country/state may be None if the IP is private.
+
+    Raises:
+        IPLookupError: If the geolocation service is unavailable, returns
+                       a non-200 status, or a request error occurs.
     """
     # Don't look up private / loopback IPs
     if ip in ("127.0.0.1", "::1", "localhost") or ip.startswith(
@@ -113,11 +120,12 @@ async def _lookup_ip(
                 timeout=5.0,
             )
     except (httpx.RequestError, httpx.TimeoutException):
-        # Fail open: allow the request if geolocation is unavailable
-        return None, None, False
+        raise IPLookupError("IP geolocation service unavailable")
 
     if response.status_code != 200:
-        return None, None, False
+        raise IPLookupError(
+            f"IP geolocation service returned status {response.status_code}"
+        )
 
     data = response.json()
     country_code: str | None = data.get("countryCode") or None
@@ -156,7 +164,19 @@ class IPBlockingMiddleware(BaseHTTPMiddleware):
         if client_ip is None:
             return await call_next(request)
 
-        country_code, state_code, is_proxy = await _lookup_ip(client_ip)
+        try:
+            country_code, state_code, is_proxy = await _lookup_ip(client_ip)
+        except IPLookupError:
+            # Fail closed: block access if geolocation is unavailable
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": (
+                        "Access is not available at this time. "
+                        "Please try again later."
+                    ),
+                },
+            )
 
         # Block VPN / proxy usage (enabled by default; set BLOCK_VPN=false
         # to disable)
