@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 
+from app.ip_blocking import IPBlockingMiddleware
 from app.routes import router
 from models.blocked import Blocked
 from models.message import Message
@@ -68,5 +69,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# IP-based geolocation blocking (enabled via IP_BLOCKING_ENABLED=true)
+app.add_middleware(IPBlockingMiddleware)
 
 app.include_router(router, prefix="")
