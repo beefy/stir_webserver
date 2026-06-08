@@ -83,6 +83,8 @@ async def run_moderation(message_id: str, message_content: str) -> None:
                                 "Respond only in JSON with either "
                                 '{"moderation_action": "ban"} or '
                                 '{"moderation_action": "dismiss"}.'
+                                'Respond with {"moderation_action": "ban"} if the message content contains hate speech, harassment, explicit content, calls for violence, or anything else that you think would qualify banning a user.'
+                                'Otherwise, respond with {"moderation_action": "dismiss"}.'
                             ),
                         },
                         {
