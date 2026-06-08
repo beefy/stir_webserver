@@ -1,10 +1,10 @@
 """API route handlers for stir_webserver."""
 
+import asyncio
+import math
 import random
 import uuid
 from datetime import datetime, timezone
-
-import math
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from app.auth import AuthError, get_firebase_user
@@ -25,9 +25,10 @@ from app.types import (
     UnreadMessagesResponse,
     ViewAccountResponse,
 )
-from app.utils import anonymize_user_id, get_current_user
+from app.utils import anonymize_user_id, get_current_user, run_moderation
 from models.blocked import Blocked
 from models.message import Message
+from models.moderation import Moderation
 from models.user import User
 
 router = APIRouter()
@@ -124,6 +125,25 @@ async def send_message(
         )
 
     recipient = random.choice(eligible)
+
+    # Check if the sender is shadow-banned
+    sender = await User.find_one(User.user_id == current_user)
+    if sender is not None and sender.shadow_banned:
+        # Shadow-banned users' messages have no real recipient
+        message = Message(
+            message_id=str(uuid.uuid4()),
+            send_user_id=current_user,
+            receive_user_id=None,
+            message=body.message_content,
+            sent_timestamp=datetime.now(timezone.utc),
+            seen_timestamp=None,
+            reaction_type=None,
+            reported=False,
+        )
+        await message.insert()
+        return SuccessResponse(
+            detail="Message sent."
+        )
 
     message = Message(
         message_id=str(uuid.uuid4()),
@@ -525,7 +545,7 @@ async def report_message(
     body: ReportMessageRequest,
     current_user: str = Depends(get_current_user),
 ):
-    """Mark a message as reported."""
+    """Mark a message as reported and trigger async moderation."""
     message = await Message.find_one(Message.message_id == body.message_id)
     if message is None:
         raise HTTPException(
@@ -542,6 +562,11 @@ async def report_message(
 
     message.reported = True
     await message.save()
+
+    # Fire-and-forget moderation via DeepSeek (does not block the response)
+    asyncio.ensure_future(
+        run_moderation(body.message_id, message.message)
+    )
 
     return SuccessResponse(
         detail=f"Message {body.message_id} reported."
@@ -616,12 +641,26 @@ async def view_account(
     ).sort(-Blocked.blocked_timestamp).to_list()
     blocked_me_data = [_serialize(b.model_dump()) for b in blocked_me]
 
+    # Fetch moderation records for messages involving the user
+    user_messages = await Message.find(
+        {"$or": [
+            {"send_user_id": current_user},
+            {"receive_user_id": current_user},
+        ]}
+    ).to_list()
+    user_message_ids = [m.message_id for m in user_messages]
+    moderations = await Moderation.find(
+        Moderation.message_id.is_in(user_message_ids)
+    ).sort(-Moderation.moderation_datetime).to_list()
+    moderations_data = [_serialize(m.model_dump()) for m in moderations]
+
     return ViewAccountResponse(
         firebase=FirebaseUserInfo(**firebase_data),
         user=user_data,
         messages=messages_data,
         blocked_by_me=blocked_by_me_data,
         blocked_me=blocked_me_data,
+        moderations=moderations_data,
     )
 
 
@@ -646,6 +685,15 @@ async def delete_account(
             detail="User not found.",
         )
 
+    # Find messages involving the user to get their message IDs
+    user_messages = await Message.find(
+        {"$or": [
+            {"send_user_id": current_user},
+            {"receive_user_id": current_user},
+        ]}
+    ).to_list()
+    user_message_ids = [m.message_id for m in user_messages]
+
     # Delete all messages where the user is sender or receiver
     msg_result = await Message.find(
         {"$or": [
@@ -662,12 +710,18 @@ async def delete_account(
         ]}
     ).delete()
 
+    # Delete moderation records for messages involving the user
+    mod_result = await Moderation.find(
+        Moderation.message_id.is_in(user_message_ids)
+    ).delete()
+
     # Delete the user document
     await user.delete()
 
     return SuccessResponse(
         detail=(
-            f"Account deleted. Removed {msg_result.deleted_count} message(s) "
-            f"and {block_result.deleted_count} block record(s)."
+            f"Account deleted. Removed {msg_result.deleted_count} message(s), "
+            f"{block_result.deleted_count} block record(s), "
+            f"and {mod_result.deleted_count} moderation record(s)."
         )
     )

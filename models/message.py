@@ -8,7 +8,7 @@ class Message(Document):
 
     message_id: str  # UUID identifying the message
     send_user_id: str
-    receive_user_id: str
+    receive_user_id: Optional[str] = None
     message: str
     sent_timestamp: datetime
     seen_timestamp: Optional[datetime] = None

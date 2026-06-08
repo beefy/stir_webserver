@@ -208,6 +208,11 @@ class ViewAccountResponse(BaseModel):
         description="Users who have blocked the authenticated user "
         "(blocked collection)",
     )
+    moderations: list[dict] = Field(
+        default_factory=list,
+        description="Moderation records for messages involving the "
+        "authenticated user (moderations collection)",
+    )
 
 
 class BlockListResponse(BaseModel):

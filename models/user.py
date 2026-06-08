@@ -5,6 +5,7 @@ class User(Document):
     """Represents a registered user."""
 
     user_id: str
+    shadow_banned: bool = False
 
     class Settings:
         name = "users"
