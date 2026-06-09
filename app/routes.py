@@ -32,6 +32,7 @@ from app.utils import (
     get_current_user_unverified,
     run_moderation,
 )
+from beanie.operators import In, Or
 from models.audit import Audit
 from models.blocked import Blocked
 from models.message import Message
@@ -242,10 +243,8 @@ async def message_history(
     """Return paginated messages where the user is sender or receiver."""
     # Count total matching messages
     total_items = await Message.find(
-        {"$or": [
-            {"send_user_id": current_user},
-            {"receive_user_id": current_user},
-        ]}
+        Or(Message.send_user_id == current_user,
+           Message.receive_user_id == current_user)
     ).count()
 
     total_pages = max(1, math.ceil(total_items / page_size))
@@ -254,10 +253,8 @@ async def message_history(
     # Fetch the requested page, sorted newest-first
     messages = (
         await Message.find(
-            {"$or": [
-                {"send_user_id": current_user},
-                {"receive_user_id": current_user},
-            ]}
+            Or(Message.send_user_id == current_user,
+               Message.receive_user_id == current_user)
         )
         .sort(-Message.sent_timestamp)
         .skip(skip)
@@ -659,10 +656,8 @@ async def view_account(
 
     # Fetch all messages where the user is sender or receiver
     messages = await Message.find(
-        {"$or": [
-            {"send_user_id": current_user},
-            {"receive_user_id": current_user},
-        ]}
+        Or(Message.send_user_id == current_user,
+           Message.receive_user_id == current_user)
     ).sort(-Message.sent_timestamp).to_list()
     messages_data = [_serialize(m.model_dump()) for m in messages]
 
@@ -680,14 +675,12 @@ async def view_account(
 
     # Fetch moderation records for messages involving the user
     user_messages = await Message.find(
-        {"$or": [
-            {"send_user_id": current_user},
-            {"receive_user_id": current_user},
-        ]}
+        Or(Message.send_user_id == current_user,
+           Message.receive_user_id == current_user)
     ).to_list()
     user_message_ids = [m.message_id for m in user_messages]
     moderations = await Moderation.find(
-        {"message_id": {"$in": user_message_ids}}
+        In(Moderation.message_id, user_message_ids)
     ).sort(-Moderation.moderation_datetime).to_list()
     moderations_data = [_serialize(m.model_dump()) for m in moderations]
 
@@ -695,10 +688,8 @@ async def view_account(
     # Also fetch audit records with the same anonymized email to catch
     # data from previous accounts that used the same email address.
     audits = await Audit.find(
-        {"$or": [
-            {"user_id": current_user},
-            {"user_email_anon": email_anon},
-        ]}
+        Or(Audit.user_id == current_user,
+           Audit.user_email_anon == email_anon)
     ).sort(-Audit.request_datetime).to_list()
     audits_data = [_serialize(a.model_dump()) for a in audits]
 
@@ -749,32 +740,26 @@ async def delete_account(
 
     # Find messages involving the user to get their message IDs
     user_messages = await Message.find(
-        {"$or": [
-            {"send_user_id": current_user},
-            {"receive_user_id": current_user},
-        ]}
+        Or(Message.send_user_id == current_user,
+           Message.receive_user_id == current_user)
     ).to_list()
     user_message_ids = [m.message_id for m in user_messages]
 
     # Delete all messages where the user is sender or receiver
     msg_result = await Message.find(
-        {"$or": [
-            {"send_user_id": current_user},
-            {"receive_user_id": current_user},
-        ]}
+        Or(Message.send_user_id == current_user,
+           Message.receive_user_id == current_user)
     ).delete()
 
     # Delete all block records where the user is the blocker or blocked
     block_result = await Blocked.find(
-        {"$or": [
-            {"blocked_by_user_id": current_user},
-            {"blocked_user_id": current_user},
-        ]}
+        Or(Blocked.blocked_by_user_id == current_user,
+           Blocked.blocked_user_id == current_user)
     ).delete()
 
     # Delete moderation records for messages involving the user
     mod_result = await Moderation.find(
-        {"message_id": {"$in": user_message_ids}}
+        In(Moderation.message_id, user_message_ids)
     ).delete()
 
     # Delete the user document
