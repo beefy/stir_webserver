@@ -23,9 +23,16 @@ from app.types import (
     SuccessResponse,
     UnblockUserRequest,
     UnreadMessagesResponse,
+    ViewAccountRequest,
     ViewAccountResponse,
 )
-from app.utils import anonymize_user_id, get_current_user, run_moderation
+from app.utils import (
+    anonymize_email,
+    anonymize_user_id,
+    get_current_user,
+    run_moderation,
+)
+from models.audit import Audit
 from models.blocked import Blocked
 from models.message import Message
 from models.moderation import Moderation
@@ -580,14 +587,29 @@ async def report_message(
     description=(
         "Returns all data about the authenticated user's account, "
         "including the Firebase user record and all associated data "
-        "from MongoDB (user document, messages, and block records)."
+        "from MongoDB (user document, messages, and block records). "
+        "Requires a request_type query parameter: 'view' or 'export'. "
+        "All requests are logged to the audit table."
     ),
 )
 async def view_account(
     authorization: str | None = Header(None),
     current_user: str = Depends(get_current_user),
+    request_type: str = Query(
+        ...,
+        description="Type of request: 'view' or 'export'",
+    ),
 ):
     """Return Firebase and all MongoDB data for the authenticated user."""
+    # Validate request_type
+    if request_type not in ("view", "export"):
+        raise HTTPException(
+            status_code=400,
+            detail="request_type must be 'view' or 'export'.",
+        )
+
+    request_datetime = datetime.now(timezone.utc)
+
     # Fetch the full Firebase user record
     try:
         firebase_data = await get_firebase_user(authorization)
@@ -596,6 +618,21 @@ async def view_account(
             status_code=exc.status_code,
             detail=exc.detail,
         )
+
+    # Create the audit log entry
+    user_email = firebase_data.get("email")
+    email_anon = anonymize_email(user_email)
+    audit = Audit(
+        audit_id=str(uuid.uuid4()),
+        request_type=request_type,
+        user_id=current_user,
+        user_email_anon=email_anon,
+        id_verification_method="firebase_token",
+        request_datetime=request_datetime,
+        finish_datetime=datetime.now(timezone.utc),
+        outcome="success",
+    )
+    await audit.insert()
 
     def _serialize(obj: dict) -> dict:
         """Convert PydanticObjectId to string and anonymize non-self
@@ -654,6 +691,12 @@ async def view_account(
     ).sort(-Moderation.moderation_datetime).to_list()
     moderations_data = [_serialize(m.model_dump()) for m in moderations]
 
+    # Fetch audit records for the user (after inserting the new one)
+    audits = await Audit.find(
+        Audit.user_id == current_user
+    ).sort(-Audit.request_datetime).to_list()
+    audits_data = [_serialize(a.model_dump()) for a in audits]
+
     return ViewAccountResponse(
         firebase=FirebaseUserInfo(**firebase_data),
         user=user_data,
@@ -661,6 +704,7 @@ async def view_account(
         blocked_by_me=blocked_by_me_data,
         blocked_me=blocked_me_data,
         moderations=moderations_data,
+        audits=audits_data,
     )
 
 
@@ -671,13 +715,26 @@ async def view_account(
     description=(
         "Deletes the authenticated user and all related data (messages, "
         "block records). The user will no longer appear as an eligible "
-        "recipient for new messages."
+        "recipient for new messages. The deletion is logged to the audit "
+        "table."
     ),
 )
 async def delete_account(
+    authorization: str | None = Header(None),
     current_user: str = Depends(get_current_user),
 ):
     """Delete the authenticated user's account and all related data."""
+    request_datetime = datetime.now(timezone.utc)
+
+    # Fetch the full Firebase user record for audit logging
+    try:
+        firebase_data = await get_firebase_user(authorization)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        )
+
     user = await User.find_one(User.user_id == current_user)
     if user is None:
         raise HTTPException(
@@ -717,6 +774,21 @@ async def delete_account(
 
     # Delete the user document
     await user.delete()
+
+    # Log the audit entry
+    user_email = firebase_data.get("email")
+    email_anon = anonymize_email(user_email)
+    audit = Audit(
+        audit_id=str(uuid.uuid4()),
+        request_type="delete",
+        user_id=current_user,
+        user_email_anon=email_anon,
+        id_verification_method="firebase_token",
+        request_datetime=request_datetime,
+        finish_datetime=datetime.now(timezone.utc),
+        outcome="success",
+    )
+    await audit.insert()
 
     return SuccessResponse(
         detail=(

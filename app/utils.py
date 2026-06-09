@@ -50,6 +50,25 @@ def anonymize_user_id(user_id: str | None) -> str | None:
     return f"anon_{digest[:16]}"
 
 
+def anonymize_email(email: str | None) -> str | None:
+    """Deterministically anonymize an email address using SHA-256.
+
+    Given the same input, this function always returns the same output,
+    making it suitable for consistent anonymization across requests.
+
+    Args:
+        email: The email address to anonymize, or None.
+
+    Returns:
+        A truncated SHA-256 hex digest (first 16 characters) prefixed
+        with "email_anon_", or None if email is None.
+    """
+    if email is None:
+        return None
+    digest = hashlib.sha256(email.encode("utf-8")).hexdigest()
+    return f"email_anon_{digest[:16]}"
+
+
 async def run_moderation(message_id: str, message_content: str) -> None:
     """Call DeepSeek to moderate a message and record the result.
 

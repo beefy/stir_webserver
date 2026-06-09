@@ -184,6 +184,16 @@ class FirebaseUserInfo(BaseModel):
     )
 
 
+class ViewAccountRequest(BaseModel):
+    """Query parameters for GET /view_account."""
+
+    request_type: str = Field(
+        ...,
+        description="Type of request: 'view' or 'export'",
+        json_schema_extra={"example": "view"},
+    )
+
+
 class ViewAccountResponse(BaseModel):
     """Response for GET /view_account."""
 
@@ -212,6 +222,11 @@ class ViewAccountResponse(BaseModel):
         default_factory=list,
         description="Moderation records for messages involving the "
         "authenticated user (moderations collection)",
+    )
+    audits: list[dict] = Field(
+        default_factory=list,
+        description="Audit log records for the authenticated user "
+        "(audits collection)",
     )
 
 
