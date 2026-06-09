@@ -90,7 +90,7 @@ class MessageOut(BaseModel):
     send_user_id: str = Field(
         description="Sender ID (anonymized if not the requesting user)"
     )
-    receive_user_id: str = Field(
+    receive_user_id: str | None = Field(
         description="Receiver ID (anonymized if not the requesting user)"
     )
     message: str = Field(description="Text content of the message")

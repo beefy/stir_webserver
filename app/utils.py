@@ -31,19 +31,21 @@ async def get_current_user(
         )
 
 
-def anonymize_user_id(user_id: str) -> str:
+def anonymize_user_id(user_id: str | None) -> str | None:
     """Deterministically anonymize a user ID using SHA-256.
 
     Given the same input, this function always returns the same output,
     making it suitable for consistent anonymization across requests.
 
     Args:
-        user_id: The original user ID to anonymize.
+        user_id: The original user ID to anonymize, or None.
 
     Returns:
         A truncated SHA-256 hex digest (first 16 characters) prefixed
-        with "anon_".
+        with "anon_", or None if user_id is None.
     """
+    if user_id is None:
+        return None
     digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
     return f"anon_{digest[:16]}"
 
