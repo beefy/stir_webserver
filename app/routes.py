@@ -691,9 +691,14 @@ async def view_account(
     ).sort(-Moderation.moderation_datetime).to_list()
     moderations_data = [_serialize(m.model_dump()) for m in moderations]
 
-    # Fetch audit records for the user (after inserting the new one)
+    # Fetch audit records for the user (after inserting the new one).
+    # Also fetch audit records with the same anonymized email to catch
+    # data from previous accounts that used the same email address.
     audits = await Audit.find(
-        Audit.user_id == current_user
+        {"$or": [
+            {"user_id": current_user},
+            {"user_email_anon": email_anon},
+        ]}
     ).sort(-Audit.request_datetime).to_list()
     audits_data = [_serialize(a.model_dump()) for a in audits]
 
