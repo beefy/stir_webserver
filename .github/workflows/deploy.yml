@@ -67,7 +67,7 @@ jobs:
           --max-instances 10 \
           --concurrency 1000 \
           --timeout 300 \
-          --set-env-vars "MONGODB_CONNECTION_STRING=${{ secrets.MONGODB_CONNECTION_STRING }},MONGODB_DATABASE_NAME=${{ secrets.MONGODB_DATABASE_NAME }},AUTH_SERVICE_URL=${{ secrets.AUTH_SERVICE_URL }},IP_BLOCKING_ENABLED=${{ secrets.IP_BLOCKING_ENABLED }},BLOCK_VPN=${{ secrets.BLOCK_VPN }},IP_API_KEY=${{ secrets.IP_API_KEY }}"
+          --set-env-vars "MONGODB_CONNECTION_STRING=${{ secrets.MONGODB_CONNECTION_STRING }},MONGODB_DATABASE_NAME=${{ secrets.MONGODB_DATABASE_NAME }},AUTH_SERVICE_URL=${{ secrets.AUTH_SERVICE_URL }},IP_BLOCKING_ENABLED=${{ secrets.IP_BLOCKING_ENABLED }},BLOCK_VPN=${{ secrets.BLOCK_VPN }},IP_API_KEY=${{ secrets.IP_API_KEY }},DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}"
 
     - name: Get Cloud Run URL (Production)
       run: |
