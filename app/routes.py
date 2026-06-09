@@ -23,13 +23,13 @@ from app.types import (
     SuccessResponse,
     UnblockUserRequest,
     UnreadMessagesResponse,
-    ViewAccountRequest,
     ViewAccountResponse,
 )
 from app.utils import (
     anonymize_email,
     anonymize_user_id,
     get_current_user,
+    get_current_user_unverified,
     run_moderation,
 )
 from models.audit import Audit
@@ -56,7 +56,7 @@ router = APIRouter()
     ),
 )
 async def login(
-    current_user: str = Depends(get_current_user),
+    current_user: str = Depends(get_current_user_unverified),
 ):
     """Register the authenticated user. If already exists, this is a no-op."""
     existing = await User.find_one(User.user_id == current_user)

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import Header
 
-from app.auth import AuthError, verify_token
+from app.auth import verify_token
 from models.moderation import Moderation
 from models.message import Message
 from models.user import User
@@ -19,16 +19,31 @@ DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 async def get_current_user(
     authorization: str | None = Header(None),
 ) -> str:
-    """Validate the Firebase token and return the authenticated user's UID."""
-    try:
-        return await verify_token(authorization)
-    except AuthError as exc:
+    """Validate the Firebase token and return the authenticated user's UID.
+
+    Requires the user's email to be verified. Raises 403 if not.
+    """
+    uid, email_verified = await verify_token(authorization)
+    if not email_verified:
         from fastapi import HTTPException
 
         raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.detail,
+            status_code=403,
+            detail="Email must be verified to use this endpoint.",
         )
+    return uid
+
+
+async def get_current_user_unverified(
+    authorization: str | None = Header(None),
+) -> str:
+    """Validate the Firebase token and return the authenticated user's UID.
+
+    Does NOT require email verification — used only for the /login endpoint
+    so unverified users can register.
+    """
+    uid, _email_verified = await verify_token(authorization)
+    return uid
 
 
 def anonymize_user_id(user_id: str | None) -> str | None:

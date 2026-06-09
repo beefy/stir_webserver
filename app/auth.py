@@ -2,7 +2,8 @@
 Authentication utility for stir_webserver.
 
 Validates Firebase ID tokens by calling the auth microservice's /api/verify
-endpoint. Returns the authenticated user's Firebase UID.
+endpoint. Returns the authenticated user's Firebase UID and email verification
+status.
 """
 
 import os
@@ -23,7 +24,7 @@ class AuthError(Exception):
         self.status_code = status_code
 
 
-async def verify_token(authorization: str | None) -> str:
+async def verify_token(authorization: str | None) -> tuple[str, bool]:
     """Validate a Firebase ID token via the auth microservice.
 
     Args:
@@ -31,7 +32,7 @@ async def verify_token(authorization: str | None) -> str:
                        (e.g. "Bearer eyJhbGciOiJSUzI1NiIs...").
 
     Returns:
-        The authenticated user's Firebase UID.
+        A tuple of (uid, email_verified).
 
     Raises:
         AuthError: If the token is missing, invalid, or the auth service
@@ -70,7 +71,8 @@ async def verify_token(authorization: str | None) -> str:
         )
 
     data = response.json()
-    return data["user"]["uid"]
+    user = data["user"]
+    return user["uid"], user.get("emailVerified", False)
 
 
 async def get_firebase_user(authorization: str | None) -> dict:
